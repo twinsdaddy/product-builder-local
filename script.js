@@ -21,7 +21,11 @@ window.addEventListener('DOMContentLoaded', () => {
         const themeIcon = document.getElementById('themeIcon');
         if (themeIcon) themeIcon.innerText = '🌙';
     }
-    generateLotto(); // 페이지 로딩 시 번호 생성
+    
+    // 로또 결과 창이 있는 경우에만 번호 생성
+    if (document.getElementById('result')) {
+        generateLotto();
+    }
 });
 
 function generateLotto() {
