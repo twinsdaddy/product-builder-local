@@ -1,0 +1,177 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>개인 일정 - 로또 번호 생성기</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link rel="stylesheet" href="style.css">
+    <script async defer src="https://apis.google.com/js/api.js" onload="gapiLoaded()"></script>
+    <script async defer src="https://accounts.google.com/gsi/client" onload="gisLoaded()"></script>
+</head>
+<body>
+
+<div class="container">
+    <button class="theme-toggle" onclick="toggleTheme()" id="themeIcon">☀️</button>
+    
+    <div class="mb-4 text-start">
+        <a href="index.html" class="text-decoration-none text-muted">← 돌아가기</a>
+    </div>
+
+    <h2 class="mb-4">오늘의 개인 일정</h2>
+    <p class="text-muted mb-4">Google Calendar에서 오늘의 일정을 불러옵니다.</p>
+
+    <div id="auth-section" class="mb-4">
+        <button id="authorize_button" class="btn btn-submit w-100" onclick="handleAuthClick()">Google Calendar 연동하기</button>
+        <button id="signout_button" class="btn btn-secondary w-100 mt-2" onclick="handleSignoutClick()" style="display: none;">로그아웃</button>
+    </div>
+
+    <div id="content" class="text-start">
+        <!-- 일정이 여기에 표시됩니다 -->
+        <div class="alert alert-info text-center" role="alert">
+            'Google Calendar 연동하기' 버튼을 눌러주세요.
+        </div>
+    </div>
+</div>
+
+<script src="script.js"></script>
+<script>
+    /* 
+     * [중요] 아래 값을 본인의 Google Cloud Console 프로젝트 정보로 변경해야 합니다.
+     * 설정 방법: https://console.cloud.google.com/
+     * 1. 프로젝트 생성
+     * 2. 'Google Calendar API' 사용 설정
+     * 3. 사용자 인증 정보 만들기 -> API 키 생성 -> API_KEY에 입력
+     * 4. 사용자 인증 정보 만들기 -> OAuth 클라이언트 ID 생성 -> 웹 애플리케이션
+     *    -> 승인된 자바스크립트 원본에 http://localhost:8000 (로컬), https://본인ID.github.io (배포) 추가
+     *    -> 클라이언트 ID를 CLIENT_ID에 입력
+     */
+    const CLIENT_ID = '866806021561-vcmuj0b841o8ur0vuqsvam68abu6r303.apps.googleusercontent.com'; // 여기에 클라이언트 ID 입력
+    const API_KEY = 'AIzaSyBYThgz0ep_kUzG9uyC-Xv5rKO1i9Od11M';     // 여기에 API 키 입력
+    
+    // API 설정
+    const DISCOVERY_DOCS = ["https://www.googleapis.com/discovery/v1/apis/calendar/v3/rest"];
+    const SCOPES = "https://www.googleapis.com/auth/calendar.readonly";
+
+    let tokenClient;
+    let gapiInited = false;
+    let gisInited = false;
+
+    function gapiLoaded() {
+        gapi.load('client', initializeGapiClient);
+    }
+
+    async function initializeGapiClient() {
+        await gapi.client.init({
+            apiKey: API_KEY,
+            discoveryDocs: DISCOVERY_DOCS,
+        });
+        gapiInited = true;
+        maybeEnableButtons();
+    }
+
+    function gisLoaded() {
+        tokenClient = google.accounts.oauth2.initTokenClient({
+            client_id: CLIENT_ID,
+            scope: SCOPES,
+            callback: '', // defined later
+        });
+        gisInited = true;
+        maybeEnableButtons();
+    }
+
+    function maybeEnableButtons() {
+        if (gapiInited && gisInited) {
+            document.getElementById('authorize_button').style.visibility = 'visible';
+        }
+    }
+
+    function handleAuthClick() {
+        if(CLIENT_ID === 'YOUR_CLIENT_ID_HERE') {
+            alert('calendar.html 파일을 열어 CLIENT_ID와 API_KEY를 설정해주세요!');
+            return;
+        }
+
+        tokenClient.callback = async (resp) => {
+            if (resp.error !== undefined) {
+                throw (resp);
+            }
+            document.getElementById('signout_button').style.display = 'block';
+            document.getElementById('authorize_button').innerText = '일정 새로고침';
+            await listUpcomingEvents();
+        };
+
+        if (gapi.client.getToken() === null) {
+            tokenClient.requestAccessToken({prompt: 'consent'});
+        } else {
+            tokenClient.requestAccessToken({prompt: ''});
+        }
+    }
+
+    function handleSignoutClick() {
+        const token = gapi.client.getToken();
+        if (token !== null) {
+            google.accounts.oauth2.revoke(token.access_token);
+            gapi.client.setToken('');
+            document.getElementById('content').innerHTML = '';
+            document.getElementById('authorize_button').innerText = 'Google Calendar 연동하기';
+            document.getElementById('signout_button').style.display = 'none';
+        }
+    }
+
+    async function listUpcomingEvents() {
+        const contentDiv = document.getElementById('content');
+        
+        // 오늘의 시작(00:00:00)과 끝(23:59:59) 구하기
+        const now = new Date();
+        const startOfDay = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+        const endOfDay = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 23, 59, 59);
+
+        try {
+            const request = {
+                'calendarId': 'primary',
+                'timeMin': startOfDay.toISOString(),
+                'timeMax': endOfDay.toISOString(),
+                'showDeleted': false,
+                'singleEvents': true,
+                'maxResults': 10,
+                'orderBy': 'startTime',
+            };
+            const response = await gapi.client.calendar.events.list(request);
+            const events = response.result.items;
+
+            if (!events || events.length === 0) {
+                contentDiv.innerHTML = '<div class="alert alert-secondary">오늘 예정된 일정이 없습니다.</div>';
+                return;
+            }
+
+            let output = '<div class="list-group">';
+            events.forEach((event) => {
+                let when = event.start.dateTime;
+                if (!when) {
+                    when = event.start.date; // 하루 종일 일정
+                } else {
+                    // 시간 포맷팅 (오전/오후 hh:mm)
+                    const date = new Date(when);
+                    when = date.toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit' });
+                }
+                
+                output += `
+                    <div class="list-group-item bg-transparent text-body border-secondary mb-2 rounded">
+                        <div class="d-flex w-100 justify-content-between">
+                            <h5 class="mb-1 fw-bold">${event.summary}</h5>
+                            <small class="text-muted">${when}</small>
+                        </div>
+                        <p class="mb-1 text-muted small">${event.description || ''}</p>
+                    </div>
+                `;
+            });
+            output += '</div>';
+            contentDiv.innerHTML = output;
+        } catch (err) {
+            contentDiv.innerHTML = `<div class="alert alert-danger">일정을 불러오는데 실패했습니다.<br>${err.message}</div>`;
+        }
+    }
+</script>
+</body>
+</html>
